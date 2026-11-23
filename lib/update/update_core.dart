@@ -1,6 +1,6 @@
-/// Pure-Dart logic for the in-app updater (no Flutter, no I/O): version
-/// parsing/comparison and "what is the newest GitHub release". Every
-/// network edge is injected so this runs on a bare Dart VM in tests.
+// Pure-Dart logic for the in-app updater (no Flutter, no I/O): version
+// parsing/comparison and "what is the newest GitHub release". Every
+// network edge is injected so this runs on a bare Dart VM in tests.
 
 /// Where releases are published (GitHub Actions attaches the APK on tags).
 const String kRepoOwner = 'ahmedsojibahm49-star';

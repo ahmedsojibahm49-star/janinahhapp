@@ -39,8 +39,9 @@ class HttpExtensionFetcher implements ExtensionFetcher {
       final response = await client.send(request).timeout(timeout);
 
       // A redirect must not downgrade to plain http.
+      final Object untyped = response;
       final finalUrl =
-          response is http.BaseResponseWithUrl ? response.url : url;
+          untyped is http.BaseResponseWithUrl ? untyped.url : url;
       if (!finalUrl.isScheme('https')) {
         throw const FetchException(
             FetchFailure.network, 'The server redirected to an insecure URL.');

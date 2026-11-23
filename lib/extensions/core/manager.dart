@@ -309,19 +309,15 @@ class StoreItem {
 /// Notifies listeners after every state change.
 class ExtensionManager {
   ExtensionManager({
-    required ExtensionFetcher fetcher,
-    required KeyValueStore store,
-    required PackageStorage packages,
-    required ExtensionHost host,
+    required this._fetcher,
+    required this._store,
+    required this._packages,
+    required this._host,
     DateTime Function()? clock,
     this.fetchTimeout = const Duration(seconds: 20),
     this.loadTimeout = const Duration(seconds: 60),
     this.listConcurrency = 3,
-  })  : _fetcher = fetcher,
-        _store = store,
-        _packages = packages,
-        _host = host,
-        _clock = clock ?? DateTime.now;
+  }) : _clock = clock ?? DateTime.now;
 
   static const String reposKey = 'ext.repos.v1';
   static const String installedKey = 'ext.installed.v1';

@@ -298,7 +298,7 @@ Map<String, Object?> pluginRow(
       'tvTypes': tvTypes,
       'iconUrl': 'https://repo.example/$internal.png',
       'repositoryUrl': 'https://github.com/x/y',
-      if (apiVersion != null) 'apiVersion': apiVersion,
+      'apiVersion': ?apiVersion,
       if (package != null) 'fileSize': package.length,
       if (package != null && withHash) 'fileHash': sha256Hex(package),
     };

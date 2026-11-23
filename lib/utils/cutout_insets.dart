@@ -1,11 +1,11 @@
-/// Pure maths for the camera-cutout (notch / punch-hole) fix.
-///
-/// Why it exists: the app runs in Android immersive mode, which hides the
-/// status bar. Flutter then reports `MediaQuery.padding.top == 0`, yet the
-/// physical camera cutout is still there, so content drawn from y = 0 ends
-/// up under the camera. Reading the cutout rectangles and lifting the
-/// padding past them fixes every screen that uses SafeArea / AppBar,
-/// without touching any of those screens.
+// Pure maths for the camera-cutout (notch / punch-hole) fix.
+//
+// Why it exists: the app runs in Android immersive mode, which hides the
+// status bar. Flutter then reports `MediaQuery.padding.top == 0`, yet the
+// physical camera cutout is still there, so content drawn from y = 0 ends
+// up under the camera. Reading the cutout rectangles and lifting the
+// padding past them fixes every screen that uses SafeArea / AppBar,
+// without touching any of those screens.
 
 class CutoutRect {
   const CutoutRect(this.left, this.top, this.right, this.bottom);
