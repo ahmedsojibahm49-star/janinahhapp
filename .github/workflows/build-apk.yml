@@ -1,0 +1,148 @@
+name: Build APK
+
+# Builds a release APK on every push to main and on manual dispatch.
+# The APK is uploaded as an artifact (streambox-apk) — download it from the
+# Actions run. When a version tag (v1.0.0, v1.1.0, ...) is pushed, the APK is
+# ALSO published as a GitHub Release with the APK attached.
+#
+# To publish a release: git tag v1.0.0 && git push origin v1.0.0
+#
+# RELEASE SIGNING: if the four ANDROID_* repository secrets are set
+# (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS,
+# ANDROID_KEY_PASSWORD — see android/keystore-passwords.txt in the project
+# ZIP, never committed), the APK is signed with the release key. Without
+# them the build still succeeds and signs with the debug keys (with a
+# warning) — a debug-signed APK triggers stronger Play Protect warnings
+# on install, so set the secrets up for published releases.
+#
+# NOTE: this workflow does NOT run build_runner. Hive adapters (*.g.dart) are
+# committed to the repo; if a workstream adds a model or a HiveField without
+# regenerating (`dart run build_runner build --delete-conflicting-outputs`),
+# the build step fails — regenerate and commit the adapters.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+jobs:
+  build-apk:
+    name: Build release APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter (stable)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Set up release signing (optional)
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ] || [ -z "$ANDROID_KEYSTORE_PASSWORD" ] || [ -z "$ANDROID_KEY_ALIAS" ] || [ -z "$ANDROID_KEY_PASSWORD" ]; then
+            case "$GITHUB_REF" in
+              refs/tags/v*)
+                # A debug-signed release is signed with a NEW random key on
+                # every run, so Android refuses to update the installed app
+                # ("uninstall first"). Never publish one by accident.
+                echo "::error::Release signing secrets are missing. Refusing to publish a release signed with a throw-away debug key: users could not update over their installed app. Add ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD under Settings > Secrets and variables > Actions, then re-run."
+                exit 1
+                ;;
+            esac
+            echo "::warning::Release signing secrets are not configured — this non-release build uses a throw-away debug key (it cannot update over a release-signed install)."
+            exit 0
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/streambox-release.keystore
+          cat > android/key.properties <<PROPS_EOF
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeFile=../streambox-release.keystore
+          PROPS_EOF
+          echo "Release signing configured."
+
+      # The extension runtime depends on CloudStream's library from JitPack.
+      # Try the newest stable version first, then the one a known-good
+      # open-source host (Zangetsu) ships, and only then give up on
+      # extensions — so one bad dependency can never cost a whole release.
+      - name: Build release APK (extension runtime, CloudStream library v4.9.1)
+        id: build_a
+        continue-on-error: true
+        env:
+          STREAMBOX_CS3_LIB: v4.9.1
+        run: flutter build apk --release
+
+      - name: Build release APK (extension runtime, CloudStream library v4.8.0)
+        id: build_b
+        if: steps.build_a.outcome == 'failure'
+        continue-on-error: true
+        env:
+          STREAMBOX_CS3_LIB: v4.8.0
+        run: |
+          echo "::warning title=Fell back to CloudStream library v4.8.0::The v4.9.1 build failed; see that step's log."
+          flutter build apk --release
+
+      - name: Fallback - build WITHOUT the extension runtime
+        if: steps.build_a.outcome == 'failure' && steps.build_b.outcome == 'failure'
+        env:
+          STREAMBOX_CS3: '0'
+        run: |
+          echo "::warning title=Extensions runtime not included::Both runtime builds failed, so this APK has NO extension support. Open the failed steps above."
+          echo "### Built WITHOUT extension support" >> "$GITHUB_STEP_SUMMARY"
+          flutter build apk --release
+
+      - name: Show signing certificate
+        # Every release of the same app must print the SAME SHA-256 here.
+        # If it changes between releases, Android will refuse the update.
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | grep -E "Signer #1 certificate (DN|SHA-256)" || true
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: streambox-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Rename APK for release (+ SHA-256 for the in-app updater)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk streambox-${{ github.ref_name }}.apk
+          sha256sum streambox-${{ github.ref_name }}.apk > streambox-${{ github.ref_name }}.apk.sha256
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            streambox-${{ github.ref_name }}.apk
+            streambox-${{ github.ref_name }}.apk.sha256
+          name: StreamBox ${{ github.ref_name }}
+          body: |
+            StreamBox — provider-based anime, movies & manga app (Flutter).
+            Install the APK below (allow "Install unknown apps" when asked).
+            Sign up to get your unique login code, then add a provider repo from Settings → Providers.
